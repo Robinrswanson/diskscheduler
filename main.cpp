@@ -47,7 +47,7 @@ void requester(void * a) {
         int track = std::stoi(track_line);
         m.lock();
         // Wait if the queue is "full" based on max_disk_queue.
-        while ((int)request_queue.size() == std::min(max_disk_queue, active_req) || active_reqs[req_num]) {
+        while (request_queue.size() == std::min(max_disk_queue, active_req) || active_reqs[req_num]) {
             cv_not_full.wait(m);
         }
 
@@ -72,7 +72,8 @@ void requester(void * a) {
     active_req--;
     // If the queue might now be empty and no more requests are coming from this requester,
     // `servicer` might be waiting, so signal cv_not_empty (it will check conditions).
-    cv_not_empty.signal();
+    std::cout << "requester " << req_num << " done" << std::endl;
+    // cv_not_empty.signal();
     m.unlock();
 }
 
