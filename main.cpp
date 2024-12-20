@@ -8,7 +8,8 @@
 #include "cv.h"
 #include "cpu.h"
 
-mutex m;
+mutex m_queue;
+mutex m_active_req;
 cv cv_not_empty;
 cv cv_not_full;
 
@@ -16,7 +17,7 @@ int max_disk_queue;
 int num_files;
 int curr_track = 0;
 int active_req = 0;
-std::vector<int> active_reqs;
+std::vector<int> is_active;
 
 std::vector<std::string> files;
 
@@ -33,72 +34,86 @@ struct Request {
 };
 
 void requester(void * a) {
+
+    m_active_req.lock();
+    active_req++;
+    m_active_req.unlock();
     Request *req = (Request *) a;
     int req_num = req->req_num;
     std::ifstream file(req->file);
 
     // Mark this requester as active.
-    m.lock();
-    active_req++;
-    m.unlock();
+
 
     std::string track_line;
     while (std::getline(file, track_line)) {
         int track = std::stoi(track_line);
-        m.lock();
-        // Wait if the queue is "full" based on max_disk_queue.
-        while (request_queue.size() == std::min(max_disk_queue, active_req) || active_reqs[req_num]) {
-            cv_not_full.wait(m);
-        }
-
-        // Set requester as active.
-        active_reqs[req_num] = 1;
-
-        // Insert the request at the end (no sorting here).
+        // Create a new request.
         DiskRequest dreq;
         dreq.req_num = req_num;
         dreq.track_num = track;
+
+        // Wait if this requester is already active.
+        m_queue.lock();
+
+        // Wait if the queue is "full" based on max_disk_queue.
+        while (request_queue.size() >= std::min(max_disk_queue, active_req)) {
+            cv_not_full.wait(m_queue);
+        }
+
+        // Set requester as active.
+        is_active[req_num] = 1;
+
+        // Insert the request at the end (no sorting here).
         request_queue.push_back(dreq);
 
         std::cout << "requester " << req_num << " track " << track << std::endl;
 
         // Signal that the queue is not empty.
         cv_not_empty.signal();
-        m.unlock();
+        while (is_active[req_num]) {
+            cv_not_full.wait(m_queue);
+        }
+        m_queue.unlock();
     }
 
-    m.lock();
+    m_queue.lock();
     // This requester is done producing requests.
+    m_active_req.lock();
     active_req--;
+    m_active_req.unlock();
     // If the queue might now be empty and no more requests are coming from this requester,
     // `servicer` might be waiting, so signal cv_not_empty (it will check conditions).
-    std::cout << "requester " << req_num << " done" << std::endl;
-    // cv_not_empty.signal();
-    m.unlock();
+
+    cv_not_empty.signal();
+    m_queue.unlock();
 }
 
 void servicer(void * a) {
     // Start all requesters.
-    m.lock();
+    m_active_req.lock();
     for (int i = 0; i < num_files; i++) {
-        active_reqs.push_back(0);
+        is_active.push_back(0);
         Request *req = new Request();
         req->req_num = i;
         req->file = files[i];
         thread((thread_startfunc_t) requester, (void *) req);
     }
-    m.unlock();
+    m_active_req.unlock();
 
     while (true) {
-        m.lock();
+        m_queue.lock();
+        m_active_req.lock();
         // Wait until queue is full or no more active requesters.
         while (request_queue.size() < std::min(max_disk_queue, active_req)) {
-            cv_not_empty.wait(m);
+            m_active_req.unlock();
+            cv_not_empty.wait(m_queue);
+            m_active_req.lock();
         }
 
         // If the queue is empty and no active requesters, we are done servicing.
         if (request_queue.empty() && active_req == 0) {
-            m.unlock();
+            m_queue.unlock();
             break;
         }
 
@@ -122,12 +137,14 @@ void servicer(void * a) {
         request_queue.erase(request_queue.begin() + best_index);
 
         // Set requester as inactive.
-        active_reqs[to_service.req_num] = 0;
+        
+        is_active[to_service.req_num] = 0;
+
 
         // Signal that the queue may have space now for more requests.
         cv_not_full.broadcast();
-
-        m.unlock();
+        m_active_req.unlock();
+        m_queue.unlock();
     }
 }
 
