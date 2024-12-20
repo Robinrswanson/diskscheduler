@@ -1,20 +1,16 @@
 /*
  * cpu.h -- interface to the simulated CPU
  *
- * This interface is meant to be used by the thread library.
- * The only part that is used by application programs is cpu::boot()
- *
- * This class is implemented almost entirely by the infrastructure; the
- * only part implemented by the thread library is cpu::init().
+ * This interface is used mainly by the thread library.
+ * The only part that is used by application programs is cpu::boot().
  */
-#ifndef _CPU_H
-#define _CPU_H
+#pragma once
 
+#include <atomic>
+#include <cstddef>
 #include "thread.h"
 
-typedef void (*interrupt_handler_t) (void);
-
-#define MAX_CPUS 16             // maximum number of CPUs
+using interrupt_handler_t = void (*)();
 
 class cpu {
 public:
@@ -33,7 +29,7 @@ public:
      * results if it is run with the same value for deterministic (different
      * non-zero values for deterministic will lead to different results).
      */
-    static void boot(thread_startfunc_t func, void *arg,
+    static void boot(thread_startfunc_t func, void* arg,
                      unsigned int deterministic);
 
     /*
@@ -66,73 +62,59 @@ public:
 
     /*
      * The interrupt vector table specifies the functions that will be called
-     * for each type of interrupt.
+     * for each type of interrupt.  There are two interrupt types: TIMER and
+     * IPI.
      */
-#define TIMER 0
-#define IPI 1
+    static constexpr unsigned int TIMER = 0;
+    static constexpr unsigned int IPI = 1;
     interrupt_handler_t interrupt_vector_table[IPI+1];
 
-    static cpu *self();                 // returns pointer to the cpu this thread
-                                        // is running on
-
-    class impl;                         // defined by the thread library
-    impl *impl_ptr;                     // used by the thread library
+    static cpu* self();                 // returns pointer to the cpu that
+                                        // the calling thread is running on
 
     /*
-     * Disable the default copy constructor and copy assignment operator.
+     * The infrastructure provides an atomic guard variable, which thread
+     * libraries should use to provide mutual exclusion on multiprocessors.
+     * The switch invariant for multiprocessors specifies that this guard variable
+     * must be true when calling swapcontext.  guard is initialized to false.
+     */
+    static std::atomic<bool> guard;
+
+    /*
+     * Disable the default copy constructor, copy assignment operator,
+     * move constructor, and move assignment operator.
      */
     cpu(const cpu&) = delete;
     cpu& operator=(const cpu&) = delete;
     cpu(cpu&&) = delete;
     cpu& operator=(cpu&&) = delete;
 
-private:
     /*
-     * cpu::init() initializes a CPU.  It is provided by the thread library
-     * and called by the infrastructure.  After a CPU is initialized, it
+     * The cpu constructor initializes a CPU.  It is provided by the thread
+     * library and called by the infrastructure.  After a CPU is initialized, it
      * should run user threads as they become available.  If func is not
-     * nullptr, cpu::init() also creates a user thread that executes func(arg).
+     * nullptr, cpu::cpu() also creates a user thread that executes func(arg).
      *
-     * On success, cpu::init() should not return to the caller.
+     * On success, cpu::cpu() should not return to the caller.
      */
-    void init(thread_startfunc_t, void *);
-
-    cpu();                              // defined and used by infrastructure
-    static void boot_helper(void *);    // defined and used by infrastructure
+    cpu(thread_startfunc_t func, void* arg);
 };
-
-/*
- * The infrastructure provides an atomic guard variable, which thread
- * libraries should use to provide mutual exclusion on multiprocessors.
- * The switch invariant for multiprocessors specifies that this guard variable
- * must be true when calling swapcontext.  guard is initialized to false.
- */
-#include <atomic>
-extern std::atomic<bool> guard;
+static_assert(sizeof(cpu) <= 1024);
+static_assert(std::is_standard_layout_v<cpu>);
+static_assert(offsetof(cpu, interrupt_vector_table) == 0);
 
 /*
  * assert_interrupts_disabled() and assert_interrupts_enabled() can be used
  * as error checks inside the thread library.  They will assert (i.e. abort
  * the program and dump core) if the condition they test for is not met.
  */
-#ifdef NDEBUG
-
-#define assert_interrupts_disabled()
-#define assert_interrupts_enabled()
-
-#else // NDEBUG
-
-#define assert_interrupts_disabled()                                    \
+#define assert_interrupts_disabled()                                             \
                 assert_interrupts_private(__FILE__, __LINE__, true)
-#define assert_interrupts_enabled()                                     \
+#define assert_interrupts_enabled()                                              \
                 assert_interrupts_private(__FILE__, __LINE__, false)
 
 /*
  * assert_interrupts_private() is a private function for the interrupt
  * functions.  Your thread library should not call it directly.
  */
-extern void assert_interrupts_private(const char *, int, bool);
-
-#endif // NDEBUG
-
-#endif /* _CPU_H */
+void assert_interrupts_private(const char *, int, bool);

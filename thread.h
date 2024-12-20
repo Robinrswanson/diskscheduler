@@ -1,43 +1,31 @@
-
 /*
- * thread.h -- public interface to thread library
+ * thread.h -- interface to the thread library
  *
  * This file should be included by the thread library and by application
  * programs that use the thread library.
  */
-#ifndef _THREAD_H
-#define _THREAD_H
+#pragma once
 
-#define STACK_SIZE 262144               // size of each thread's stack
+static constexpr unsigned int STACK_SIZE=262144;// size of each thread's stack
 
-typedef void (*thread_startfunc_t) (void *);
+using thread_startfunc_t = void (*)(void*);
 
 class thread {
 public:
-    thread(thread_startfunc_t, void *); // create a new thread
+    thread(thread_startfunc_t func, void* arg); // create a new thread
     ~thread();
 
-    void join();                        // wait for this thread to finish
-
-    static thread *self();              // returns pointer to the thread object
-                                        // that called self().  Returns nullptr if
-                                        // the thread object that called self()
-                                        // has been destroyed)
-
-    class impl;                         // defined by the thread library
-    impl *impl_ptr;                     // used by the thread library
+    void join();                                // wait for this thread to finish
 
     /*
-     * Disable the default copy constructor and copy assignment operator.
+     * Disable the copy constructor and copy assignment operator.
      */
     thread(const thread&) = delete;
     thread& operator=(const thread&) = delete;
-    thread(thread&&) = delete;
-    thread& operator=(thread&&) = delete;
+
+    /*
+     * Move constructor and move assignment operator.
+     */
+    thread(thread&&);
+    thread& operator=(thread&&);
 };
-
-#include "cpu.h"
-#include "mutex.h"
-#include "cv.h"
-
-#endif /* _THREAD_H */

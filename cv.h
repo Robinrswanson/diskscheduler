@@ -1,5 +1,8 @@
-#ifndef _CV_H
-#define _CV_H
+/*
+ * cv.h -- interface to the CV class
+ */
+
+#pragma once
 
 #include "mutex.h"
 
@@ -14,16 +17,15 @@ public:
     void broadcast();                   // wake up all threads on this condition
                                         // variable
 
-    class impl;                         // defined by the thread library
-    impl *impl_ptr;                     // used by the thread library
-
     /*
-     * Disable the default copy constructor and copy assignment operator.
+     * Disable the copy constructor and copy assignment operator.
      */
     cv(const cv&) = delete;
     cv& operator=(const cv&) = delete;
-    cv(cv&&) = delete;
-    cv& operator=(cv&&) = delete;
-};
 
-#endif /* _CV_H */
+    /*
+     * Move constructor and move assignment operator.
+     */
+    cv(cv&&);
+    cv& operator=(cv&&);
+};
